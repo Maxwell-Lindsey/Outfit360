@@ -291,7 +291,15 @@ export default function Viewer360({ frames, totalFrames, id }: Viewer360Props) {
         >
           <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
           {isExporting ? 'Exporting GIF...' : 'Export as GIF'}
-          <span className="ml-1 text-xs text-gray-500">(Best for sharing)</span>
+          <span className="ml-1 text-xs text-gray-500 group relative">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            </svg>
+            <span className="invisible group-hover:visible absolute bottom-full mb-2 w-48 bg-gray-900 text-white text-xs rounded py-1 px-2 left-1/2 transform -translate-x-1/2">
+              Optimized for web sharing with smaller file size and wide compatibility
+              <svg className="absolute text-gray-900 h-2 w-full left-0 top-full" x="0px" y="0px" viewBox="0 0 255 255"><polygon className="fill-current" points="0,0 127.5,127.5 255,0"/></svg>
+            </span>
+          </span>
         </button>
         <button
           onClick={() => handleExport('mp4')}
@@ -304,7 +312,15 @@ export default function Viewer360({ frames, totalFrames, id }: Viewer360Props) {
         >
           <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
           {isExporting ? 'Exporting MP4...' : 'Export as MP4'}
-          <span className="ml-1 text-xs text-gray-500">(Higher quality)</span>
+          <span className="ml-1 text-xs text-gray-500 group relative">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline-block">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            </svg>
+            <span className="invisible group-hover:visible absolute bottom-full mb-2 w-48 bg-gray-900 text-white text-xs rounded py-1 px-2 left-1/2 transform -translate-x-1/2">
+              HD quality (1280p) with high-quality encoding, resulting in larger file size
+              <svg className="absolute text-gray-900 h-2 w-full left-0 top-full" x="0px" y="0px" viewBox="0 0 255 255"><polygon className="fill-current" points="0,0 127.5,127.5 255,0"/></svg>
+            </span>
+          </span>
         </button>
       </div>
 
