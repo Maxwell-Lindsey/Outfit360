@@ -90,9 +90,32 @@ async function extractFrames(videoPath: string, outputDir: string) {
       console.warn('Failed to set executable permission on ffmpeg:', error);
     }
     
-    // Extract 24 frames (for smooth rotation)
-    const command = `"${ffmpegPath}" -i "${videoPath}" -vf fps=24 "${path.join(outputDir, 'frame_%04d.jpg')}"`;
-    await execAsync(command);
+    // Get video duration using ffprobe
+    const durationCommand = `"${ffmpegPath}" -i "${videoPath}" 2>&1 | grep "Duration"`;
+    const { stdout: durationOutput } = await execAsync(durationCommand);
+    const durationMatch = durationOutput.match(/Duration: (\d{2}):(\d{2}):(\d{2}.\d{2})/);
+    
+    if (!durationMatch) {
+      throw new Error('Could not determine video duration');
+    }
+    
+    // Calculate total seconds from duration
+    const hours = parseInt(durationMatch[1]);
+    const minutes = parseInt(durationMatch[2]);
+    const seconds = parseFloat(durationMatch[3]);
+    const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+    
+    // Calculate timestamps for 16 evenly distributed frames
+    const frameCount = 16;
+    const interval = totalSeconds / (frameCount - 1); // -1 to include both start and end frames
+    
+    // Extract frames at specific timestamps
+    for (let i = 0; i < frameCount; i++) {
+      const timestamp = i * interval;
+      const outputPath = path.join(outputDir, `frame_${String(i).padStart(4, '0')}.jpg`);
+      const command = `"${ffmpegPath}" -ss ${timestamp} -i "${videoPath}" -vframes 1 -q:v 2 "${outputPath}"`;
+      await execAsync(command);
+    }
   } catch (error) {
     console.error('Error extracting frames:', error);
     throw error;

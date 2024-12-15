@@ -1,13 +1,26 @@
 // src/app/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Viewer360 from '@/components/Viewer360';
 
 export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
-  const [viewerData, setViewerData] = useState<{ frames: string[]; totalFrames: number } | null>(null);
+  const [viewerData, setViewerData] = useState<{ frames: string[]; totalFrames: number; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Register the reset function in the window object
+  useEffect(() => {
+    (window as any).__resetOutfit360Viewer = () => {
+      setViewerData(null);
+      setError(null);
+    };
+
+    // Cleanup
+    return () => {
+      delete (window as any).__resetOutfit360Viewer;
+    };
+  }, []);
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -97,7 +110,11 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-4">
-            <Viewer360 frames={viewerData.frames} totalFrames={viewerData.totalFrames} />
+            <Viewer360 
+              frames={viewerData.frames} 
+              totalFrames={viewerData.totalFrames}
+              id={viewerData.id}
+            />
             <button
               onClick={() => setViewerData(null)}
               className="mt-4 w-full rounded-md bg-white px-3.5 py-2.5 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"

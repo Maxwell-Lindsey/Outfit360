@@ -1,168 +1,129 @@
 // src/app/components/FaceDetection.tsx
+
+import React, { useRef, useEffect } from 'react';
 import type { Face } from '@tensorflow-models/face-detection';
 
-// Import statements remain the same...
-
-const pixelateRegion = (
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  pixelSize: number = 10
-) => {
-  // Get the specified region of pixels
-  const imageData = ctx.getImageData(x, y, width, height);
-  const data = imageData.data;
-  
-  // Iterate through pixel blocks
-  for (let y = 0; y < height; y += pixelSize) {
-    for (let x = 0; x < width; x += pixelSize) {
-      // Calculate the average color of the pixel block
-      let r = 0, g = 0, b = 0, a = 0;
-      let count = 0;
-      
-      // Sum up the colors in the block
-      for (let py = 0; py < pixelSize && y + py < height; py++) {
-        for (let px = 0; px < pixelSize && x + px < width; px++) {
-          const i = ((y + py) * width + (x + px)) * 4;
-          r += data[i];
-          g += data[i + 1];
-          b += data[i + 2];
-          a += data[i + 3];
-          count++;
-        }
-      }
-      
-      // Calculate averages
-      r = Math.floor(r / count);
-      g = Math.floor(g / count);
-      b = Math.floor(b / count);
-      a = Math.floor(a / count);
-      
-      // Apply the average color to all pixels in the block
-      for (let py = 0; py < pixelSize && y + py < height; py++) {
-        for (let px = 0; px < pixelSize && x + px < width; px++) {
-          const i = ((y + py) * width + (x + px)) * 4;
-          data[i] = r;
-          data[i + 1] = g;
-          data[i + 2] = b;
-          data[i + 3] = a;
-        }
-      }
-    }
-  }
-  
-  // Put the modified pixels back
-  ctx.putImageData(imageData, x, y);
-};
+interface FaceDetectionProps {
+  imageUrl: string;
+  detections: Face[];
+}
 
 const drawFaceDetections = (
   ctx: CanvasRenderingContext2D,
-  detections: Face[]
+  detections: Face[],
+  image: HTMLImageElement
 ) => {
-  detections.forEach(detection => {
+  detections.forEach((detection) => {
     const keypoints = detection.keypoints;
-    if (keypoints && keypoints.length > 0) {
-      const { box } = detection;
-      const { xMin, yMin, width, height } = box;
+    if (!keypoints || keypoints.length === 0) return;
 
-      // Create a temporary canvas for the face region
-      const tempCanvas = document.createElement('canvas');
-      const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-      tempCanvas.width = ctx.canvas.width;
-      tempCanvas.height = ctx.canvas.height;
+    const { box } = detection;
+    const { xMin, yMin, width, height } = box;
 
-      // Copy the original image to temp canvas
-      tempCtx?.drawImage(ctx.canvas, 0, 0);
+    // Create face mask canvas
+    const faceMaskCanvas = document.createElement('canvas');
+    faceMaskCanvas.width = ctx.canvas.width;
+    faceMaskCanvas.height = ctx.canvas.height;
+    const faceMaskCtx = faceMaskCanvas.getContext('2d', { willReadFrequently: true });
+    if (!faceMaskCtx) return;
 
-      // Create face mask path
-      tempCtx?.beginPath();
-      
-      // Use keypoints to create face path
-      if (tempCtx) {
-        const points = keypoints;
-        tempCtx.moveTo(points[0].x, points[0].y);
-        points.forEach((point, i) => {
-          if (i > 0) {
-            tempCtx.lineTo(point.x, point.y);
-          }
-        });
-      }
-      
-      tempCtx?.closePath();
+    faceMaskCtx.clearRect(0, 0, faceMaskCanvas.width, faceMaskCanvas.height);
+    faceMaskCtx.fillStyle = 'white';
+    faceMaskCtx.beginPath();
+    faceMaskCtx.moveTo(keypoints[0].x, keypoints[0].y);
+    for (let i = 1; i < keypoints.length; i++) {
+      faceMaskCtx.lineTo(keypoints[i].x, keypoints[i].y);
+    }
+    faceMaskCtx.closePath();
+    faceMaskCtx.fill();
 
-      // Fill the face path
-      if (tempCtx) {
-        tempCtx.fillStyle = 'rgb(255, 255, 255)';
-        tempCtx.fill();
-      }
+    // Create a separate canvas for the blurred image
+    const blurCanvas = document.createElement('canvas');
+    blurCanvas.width = ctx.canvas.width;
+    blurCanvas.height = ctx.canvas.height;
+    const blurCtx = blurCanvas.getContext('2d', { willReadFrequently: true });
+    if (!blurCtx) return;
 
-      // Create a new canvas for the blurred version
-      const blurCanvas = document.createElement('canvas');
-      const blurCtx = blurCanvas.getContext('2d', { willReadFrequently: true });
-      blurCanvas.width = ctx.canvas.width;
-      blurCanvas.height = ctx.canvas.height;
+    // Draw the original image onto blur canvas
+    blurCtx.drawImage(image, 0, 0);
 
-      // Copy original image to blur canvas
-      blurCtx?.drawImage(ctx.canvas, 0, 0);
+    // Apply heavy blur multiple times
+    blurCtx.filter = 'blur(50px)';
+    blurCtx.drawImage(blurCanvas, 0, 0);
+    blurCtx.filter = 'blur(50px)';
+    blurCtx.drawImage(blurCanvas, 0, 0);
+    blurCtx.filter = 'blur(50px)';
+    blurCtx.drawImage(blurCanvas, 0, 0);
+    blurCtx.filter = 'none'; // reset filter
 
-      // Apply extremely strong blur
-      if (blurCtx) {
-        blurCtx.filter = 'blur(50px)';
-        blurCtx.drawImage(blurCanvas, 0, 0);
-        blurCtx.filter = 'blur(50px)';
-        blurCtx.drawImage(blurCanvas, 0, 0);
-        blurCtx.filter = 'blur(50px)';
-        blurCtx.drawImage(blurCanvas, 0, 0);
-      }
-
-      // Apply pixelation
-      const pixelSize = 20;
-      const regionData = blurCtx?.getImageData(xMin, yMin, width, height);
-      if (regionData && blurCtx) {
-        for (let py = 0; py < height; py += pixelSize) {
-          for (let px = 0; px < width; px += pixelSize) {
-            let r = 0, g = 0, b = 0, count = 0;
-            
-            // Average the pixels in the block
-            for (let i = 0; i < pixelSize && py + i < height; i++) {
-              for (let j = 0; j < pixelSize && px + j < width; j++) {
-                const idx = ((py + i) * width + (px + j)) * 4;
-                r += regionData.data[idx];
-                g += regionData.data[idx + 1];
-                b += regionData.data[idx + 2];
-                count++;
-              }
-            }
-            
-            // Apply the averaged color
-            r = Math.floor(r / count);
-            g = Math.floor(g / count);
-            b = Math.floor(b / count);
-            
-            for (let i = 0; i < pixelSize && py + i < height; i++) {
-              for (let j = 0; j < pixelSize && px + j < width; j++) {
-                const idx = ((py + i) * width + (px + j)) * 4;
-                regionData.data[idx] = r;
-                regionData.data[idx + 1] = g;
-                regionData.data[idx + 2] = b;
-              }
-            }
+    // Pixelate the face region on the blurred image
+    const regionData = blurCtx.getImageData(xMin, yMin, width, height);
+    const pixelSize = 20;
+    for (let py = 0; py < height; py += pixelSize) {
+      for (let px = 0; px < width; px += pixelSize) {
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < pixelSize && py + i < height; i++) {
+          for (let j = 0; j < pixelSize && px + j < width; j++) {
+            const idx = ((py + i) * width + (px + j)) * 4;
+            r += regionData.data[idx];
+            g += regionData.data[idx + 1];
+            b += regionData.data[idx + 2];
+            count++;
           }
         }
-        blurCtx.putImageData(regionData, xMin, yMin);
-      }
+        r = Math.floor(r / count);
+        g = Math.floor(g / count);
+        b = Math.floor(b / count);
 
-      // Composite the blurred and masked version onto the main canvas
-      if (tempCtx && blurCtx) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        ctx.shadowBlur = 15;
-        ctx.drawImage(blurCanvas, 0, 0);
-        ctx.restore();
+        for (let i = 0; i < pixelSize && py + i < height; i++) {
+          for (let j = 0; j < pixelSize && px + j < width; j++) {
+            const idx = ((py + i) * width + (px + j)) * 4;
+            regionData.data[idx] = r;
+            regionData.data[idx + 1] = g;
+            regionData.data[idx + 2] = b;
+          }
+        }
       }
     }
+    blurCtx.putImageData(regionData, xMin, yMin);
+
+    // Mask the blurred image so only face region remains
+    blurCtx.globalCompositeOperation = 'destination-in';
+    blurCtx.drawImage(faceMaskCanvas, 0, 0);
+
+    // Reset the composite operation
+    blurCtx.globalCompositeOperation = 'source-over';
+
+    // Draw the masked blurred face over the original image on the main canvas
+    ctx.drawImage(blurCanvas, 0, 0);
   });
-}; 
+};
+
+const FaceDetection: React.FC<FaceDetectionProps> = ({ imageUrl, detections }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const image = new Image();
+    image.src = imageUrl;
+    image.crossOrigin = 'anonymous';
+
+    image.onload = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+
+      // Draw the original image first
+      ctx.drawImage(image, 0, 0);
+
+      // Now draw the blurred face overlays
+      drawFaceDetections(ctx, detections, image);
+    };
+  }, [imageUrl, detections]);
+
+  return <canvas ref={canvasRef} style={{ maxWidth: '100%' }} />;
+};
+
+export default FaceDetection;

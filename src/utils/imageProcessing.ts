@@ -1,4 +1,5 @@
 // src/utils/imageProcessing.ts
+
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgl';
 import * as faceDetection from '@tensorflow-models/face-detection';
@@ -39,7 +40,6 @@ async function createFaceMask(
 
   for (const face of faces) {
     const box = face.box;
-    // Draw an ellipse for simplicity
     ctx.beginPath();
     ctx.ellipse(
       box.xMin + box.width / 2,
@@ -95,10 +95,10 @@ export async function processImage(
         const scaledFaces = faces.map(face => ({
           ...face,
           box: {
-            xMin: face.box.xMin * scaleX,
-            yMin: face.box.yMin * scaleY,
-            width: face.box.width * scaleX,
-            height: face.box.height * scaleY,
+            xMin: Math.round(face.box.xMin * scaleX),
+            yMin: Math.round(face.box.yMin * scaleY),
+            width: Math.round(face.box.width * scaleX),
+            height: Math.round(face.box.height * scaleY),
           },
           keypoints: face.keypoints?.map(kp => ({
             x: kp.x * scaleX,
@@ -106,36 +106,36 @@ export async function processImage(
           })),
         })) as faceDetection.Face[];
 
-        // Create a mask for the face region
-        const faceMask = await createFaceMask(width, height, scaledFaces);
+        // Start with the original image
+        let outputImage = sharp(imageBuffer);
 
-        // Create a heavily blurred version of the entire image, ensuring alpha
-        const blurredImage = await sharp(imageBuffer)
-          .blur(40)
-          .ensureAlpha()
-          .toBuffer();
+        // Process each face
+        for (const face of scaledFaces) {
+          const { box } = face;
+          
+          // Extract and blur the face region
+          const blurredFace = await sharp(imageBuffer)
+            .extract({
+              left: box.xMin,
+              top: box.yMin,
+              width: box.width,
+              height: box.height
+            })
+            .blur(40)
+            .toBuffer();
 
-        // Apply the mask with dest-in to isolate the face region in the blurred image
-        const maskedBlurredFace = await sharp(blurredImage)
-          .composite([
+          // Composite the blurred face back onto the original image
+          outputImage = outputImage.composite([
             {
-              input: faceMask,
-              blend: 'dest-in', // Keeps only pixels where mask is non-transparent
-            },
-          ])
-          .toBuffer();
+              input: blurredFace,
+              top: box.yMin,
+              left: box.xMin,
+            }
+          ]);
+        }
 
-        // Now composite the masked blurred face over the original image
-        // Ensure the original also has alpha so the blending works as expected
-        await sharp(imageBuffer)
-          .ensureAlpha()
-          .composite([
-            {
-              input: maskedBlurredFace,
-              blend: 'over',
-            },
-          ])
-          // Output as JPEG or PNG. JPEG will remove any alpha and show original image outside the face.
+        // Output the final image
+        await outputImage
           .jpeg()
           .toFile(outputPath);
       } else {
@@ -143,7 +143,7 @@ export async function processImage(
         await sharp(imageBuffer).toFile(outputPath);
       }
     } else if (blurBackground) {
-      // If implementing background blur, similar logic would apply
+      // If implementing background blur in the future, apply similar logic
       await image.toFile(outputPath);
     } else {
       // No modifications
