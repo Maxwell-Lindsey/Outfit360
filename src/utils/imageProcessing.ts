@@ -30,71 +30,30 @@ async function createFaceMask(
   
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  
-  // Fill with black (transparent area in mask)
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, width, height);
-  
-  // Draw white face shapes (areas to be blurred)
-  ctx.fillStyle = 'white';
-  
-  for (const face of faces) {
-    const keypoints = face.keypoints;
-    if (!keypoints || keypoints.length === 0) {
-      // Fallback to rectangle if no keypoints
-      const box = face.box;
-      // Add padding to the face region for better blending
-      const padding = {
-        x: box.width * 0.2,
-        y: box.height * 0.2
-      };
-      
-      ctx.beginPath();
-      ctx.ellipse(
-        box.xMin + box.width / 2,
-        box.yMin + box.height / 2,
-        (box.width + padding.x) * 0.6,
-        (box.height + padding.y) * 0.8,
-        0,
-        0,
-        2 * Math.PI
-      );
-      // Add feathering effect
-      const gradient = ctx.createRadialGradient(
-        box.xMin + box.width / 2, box.yMin + box.height / 2, 
-        Math.min(box.width, box.height) * 0.3,
-        box.xMin + box.width / 2, box.yMin + box.height / 2, 
-        Math.min(box.width, box.height) * 0.8
-      );
-      gradient.addColorStop(0, 'white');
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fill();
-      continue;
-    }
 
-    // Create a path for the face shape
+  // Ensure the canvas starts transparent
+  ctx.clearRect(0, 0, width, height);
+
+  // Draw the face region in white on a transparent background
+  ctx.fillStyle = 'white';
+
+  for (const face of faces) {
+    const box = face.box;
+    // Draw an ellipse for simplicity
     ctx.beginPath();
-    ctx.moveTo(keypoints[0].x, keypoints[0].y);
-    for (let i = 1; i < keypoints.length; i++) {
-      ctx.lineTo(keypoints[i].x, keypoints[i].y);
-    }
-    ctx.closePath();
-    
-    // Create a gradient for smooth edge blending
-    const bbox = face.box;
-    const gradient = ctx.createRadialGradient(
-      bbox.xMin + bbox.width / 2, bbox.yMin + bbox.height / 2,
-      Math.min(bbox.width, bbox.height) * 0.3,
-      bbox.xMin + bbox.width / 2, bbox.yMin + bbox.height / 2,
-      Math.min(bbox.width, bbox.height) * 0.8
+    ctx.ellipse(
+      box.xMin + box.width / 2,
+      box.yMin + box.height / 2,
+      box.width / 2,
+      box.height / 2,
+      0,
+      0,
+      2 * Math.PI
     );
-    gradient.addColorStop(0, 'white');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = gradient;
     ctx.fill();
   }
 
+  // Export the mask as a PNG with transparency
   return canvas.toBuffer('image/png');
 }
 
@@ -112,8 +71,8 @@ export async function processImage(
     if (blurFace) {
       await loadModel();
       const imageBuffer = await fs.readFile(inputPath);
-      
-      // Create a normalized version for face detection
+
+      // Prepare image for face detection
       const detectionImage = await sharp(imageBuffer)
         .resize(512, 512, { fit: 'inside' })
         .removeAlpha()
@@ -129,10 +88,10 @@ export async function processImage(
       tensor.dispose();
 
       if (faces && faces.length > 0) {
-        // Scale the face coordinates back to original image size
+        // Scale face coordinates back to original size
         const scaleX = width / detectionImage.info.width;
         const scaleY = height / detectionImage.info.height;
-        
+
         const scaledFaces = faces.map(face => ({
           ...face,
           box: {
@@ -140,8 +99,6 @@ export async function processImage(
             yMin: face.box.yMin * scaleY,
             width: face.box.width * scaleX,
             height: face.box.height * scaleY,
-            xMax: (face.box.xMin + face.box.width) * scaleX,
-            yMax: (face.box.yMin + face.box.height) * scaleY
           },
           keypoints: face.keypoints?.map(kp => ({
             x: kp.x * scaleX,
@@ -149,56 +106,49 @@ export async function processImage(
           })),
         })) as faceDetection.Face[];
 
-        // Create face mask with feathered edges
+        // Create a mask for the face region
         const faceMask = await createFaceMask(width, height, scaledFaces);
-        
-        // Create heavily blurred version of the image
+
+        // Create a heavily blurred version of the entire image, ensuring alpha
         const blurredImage = await sharp(imageBuffer)
           .blur(40)
+          .ensureAlpha()
           .toBuffer();
 
-        // Process the mask to match the image dimensions
-        const processedMask = await sharp(faceMask)
-          .resize(width, height)
-          .ensureAlpha()
-          .raw()
-          .toBuffer();
-
-        // Combine the blurred image with the mask
-        const maskedBlur = await sharp(blurredImage)
-          .ensureAlpha()
+        // Apply the mask with dest-in to isolate the face region in the blurred image
+        const maskedBlurredFace = await sharp(blurredImage)
           .composite([
             {
-              input: processedMask,
-              raw: {
-                width,
-                height,
-                channels: 4
-              },
-              blend: 'dest-in'
-            }
+              input: faceMask,
+              blend: 'dest-in', // Keeps only pixels where mask is non-transparent
+            },
           ])
           .toBuffer();
 
-        // Composite the masked blur over the original
+        // Now composite the masked blurred face over the original image
+        // Ensure the original also has alpha so the blending works as expected
         await sharp(imageBuffer)
+          .ensureAlpha()
           .composite([
             {
-              input: maskedBlur,
-              blend: 'over'
-            }
+              input: maskedBlurredFace,
+              blend: 'over',
+            },
           ])
+          // Output as JPEG or PNG. JPEG will remove any alpha and show original image outside the face.
+          .jpeg()
           .toFile(outputPath);
       } else {
-        // No faces detected, just save the original
+        // No faces detected, just output the original image
         await sharp(imageBuffer).toFile(outputPath);
       }
     } else if (blurBackground) {
+      // If implementing background blur, similar logic would apply
       await image.toFile(outputPath);
     } else {
+      // No modifications
       await image.toFile(outputPath);
     }
-
   } catch (error) {
     console.error('Error processing image:', error);
     throw error;
@@ -219,4 +169,4 @@ export async function processFrames(
     const outputPath = path.join(outputDir, file);
     await processImage(inputPath, outputPath, blurFace, blurBackground);
   }
-} 
+}
