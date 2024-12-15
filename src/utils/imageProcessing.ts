@@ -3,58 +3,160 @@
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgl';
 import * as faceDetection from '@tensorflow-models/face-detection';
+import * as poseDetection from '@tensorflow-models/pose-detection';
 import sharp from 'sharp';
 import { promises as fs } from 'fs';
 import path from 'path';
 
-let model: faceDetection.FaceDetector | null = null;
+let faceModel: faceDetection.FaceDetector | null = null;
+let bodyModel: poseDetection.PoseDetector | null = null;
 
-async function loadModel() {
-  if (!model) {
+async function loadFaceModel() {
+  if (!faceModel) {
     await tf.ready();
-    model = await faceDetection.createDetector(
+    faceModel = await faceDetection.createDetector(
       faceDetection.SupportedModels.MediaPipeFaceDetector,
       {
         runtime: 'tfjs',
       }
     );
   }
-  return model;
+  return faceModel;
 }
 
-async function createFaceMask(
-  width: number,
-  height: number,
-  faces: faceDetection.Face[]
-): Promise<Buffer> {
-  const { createCanvas } = await import('canvas');
-  
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
+async function loadBodyModel() {
+  if (!bodyModel) {
+    await tf.ready();
+    // Using BlazePose as the body detection model
+    bodyModel = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
+      runtime: 'tfjs',
+    });
+  }
+  return bodyModel;
+}
 
-  // Ensure the canvas starts transparent
-  ctx.clearRect(0, 0, width, height);
+async function detectFaces(imageBuffer: Buffer, width: number, height: number) {
+  await loadFaceModel();
 
-  // Draw the face region in white on a transparent background
-  ctx.fillStyle = 'white';
+  const detectionImage = await sharp(imageBuffer)
+    .resize(512, 512, { fit: 'inside' })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
 
-  for (const face of faces) {
-    const box = face.box;
-    ctx.beginPath();
-    ctx.ellipse(
-      box.xMin + box.width / 2,
-      box.yMin + box.height / 2,
-      box.width / 2,
-      box.height / 2,
-      0,
-      0,
-      2 * Math.PI
-    );
-    ctx.fill();
+  const tensor = tf.tensor3d(
+    new Uint8Array(detectionImage.data),
+    [detectionImage.info.height, detectionImage.info.width, 3]
+  );
+
+  const faces = await faceModel?.estimateFaces(tensor);
+  tensor.dispose();
+
+  if (!faces || faces.length === 0) {
+    return [];
   }
 
-  // Export the mask as a PNG with transparency
-  return canvas.toBuffer('image/png');
+  // Scale face coordinates back to original size
+  const scaleX = width / detectionImage.info.width;
+  const scaleY = height / detectionImage.info.height;
+
+  const scaledFaces = faces.map(face => ({
+    ...face,
+    box: {
+      xMin: Math.round(face.box.xMin * scaleX),
+      yMin: Math.round(face.box.yMin * scaleY),
+      width: Math.round(face.box.width * scaleX),
+      height: Math.round(face.box.height * scaleY),
+    },
+    keypoints: face.keypoints?.map(kp => ({
+      x: kp.x * scaleX,
+      y: kp.y * scaleY,
+    })),
+  })) as faceDetection.Face[];
+
+  return scaledFaces;
+}
+
+async function detectBody(imageBuffer: Buffer, width: number, height: number) {
+  await loadBodyModel();
+
+  const detectionImage = await sharp(imageBuffer)
+    .resize(512, 512, { fit: 'inside' })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const tensor = tf.tensor3d(
+    new Uint8Array(detectionImage.data),
+    [detectionImage.info.height, detectionImage.info.width, 3]
+  );
+
+  const poses = await bodyModel?.estimatePoses(tensor);
+  tensor.dispose();
+
+  if (!poses || poses.length === 0) {
+    return null;
+  }
+
+  // We assume the first pose is the main subject
+  const pose = poses[0];
+  if (!pose.keypoints || pose.keypoints.length === 0) {
+    return null;
+  }
+
+  const xs = pose.keypoints.map((kp: { x: number }) => kp.x);
+  const ys = pose.keypoints.map((kp: { y: number }) => kp.y);
+
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+
+  const scaleX = width / detectionImage.info.width;
+  const scaleY = height / detectionImage.info.height;
+
+  const bodyBox = {
+    xMin: Math.round(minX * scaleX),
+    yMin: Math.round(minY * scaleY),
+    width: Math.round((maxX - minX) * scaleX),
+    height: Math.round((maxY - minY) * scaleY),
+  };
+
+  // Validate and clamp body box
+  const clampedBodyBox = clampBox(bodyBox, width, height);
+
+  // If clamped box has non-positive dimensions, consider no valid body
+  if (clampedBodyBox.width <= 0 || clampedBodyBox.height <= 0) {
+    return null;
+  }
+
+  return clampedBodyBox;
+}
+
+function clampBox(
+  box: { xMin: number; yMin: number; width: number; height: number },
+  imageWidth: number,
+  imageHeight: number
+): { xMin: number; yMin: number; width: number; height: number } {
+  let { xMin, yMin, width, height } = box;
+
+  // Clamp xMin, yMin
+  xMin = Math.max(0, xMin);
+  yMin = Math.max(0, yMin);
+
+  // Ensure width/height fit inside the image
+  if (xMin + width > imageWidth) {
+    width = imageWidth - xMin;
+  }
+  if (yMin + height > imageHeight) {
+    height = imageHeight - yMin;
+  }
+
+  // Ensure positive dimensions
+  width = Math.max(0, width);
+  height = Math.max(0, height);
+
+  return { xMin, yMin, width, height };
 }
 
 export async function processImage(
@@ -67,88 +169,83 @@ export async function processImage(
     const image = await sharp(inputPath);
     const metadata = await image.metadata();
     const { width = 0, height = 0 } = metadata;
+    const imageBuffer = await fs.readFile(inputPath);
 
-    if (blurFace) {
-      await loadModel();
-      const imageBuffer = await fs.readFile(inputPath);
+    let outputImage = sharp(imageBuffer);
 
-      // Prepare image for face detection
-      const detectionImage = await sharp(imageBuffer)
-        .resize(512, 512, { fit: 'inside' })
-        .removeAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
+    let bodyBox: { xMin: number; yMin: number; width: number; height: number } | null = null;
+    if (blurBackground) {
+      bodyBox = await detectBody(imageBuffer, width, height);
 
-      const tensor = tf.tensor3d(
-        new Uint8Array(detectionImage.data),
-        [detectionImage.info.height, detectionImage.info.width, 3]
-      );
+      if (bodyBox) {
+        const blurredFullImage = await sharp(imageBuffer)
+          .blur(40)
+          .toBuffer();
 
-      const faces = await model?.estimateFaces(tensor);
-      tensor.dispose();
+        // Clamp the bodyBox again just to be extra safe
+        bodyBox = clampBox(bodyBox, width, height);
 
-      if (faces && faces.length > 0) {
-        // Scale face coordinates back to original size
-        const scaleX = width / detectionImage.info.width;
-        const scaleY = height / detectionImage.info.height;
-
-        const scaledFaces = faces.map(face => ({
-          ...face,
-          box: {
-            xMin: Math.round(face.box.xMin * scaleX),
-            yMin: Math.round(face.box.yMin * scaleY),
-            width: Math.round(face.box.width * scaleX),
-            height: Math.round(face.box.height * scaleY),
-          },
-          keypoints: face.keypoints?.map(kp => ({
-            x: kp.x * scaleX,
-            y: kp.y * scaleY,
-          })),
-        })) as faceDetection.Face[];
-
-        // Start with the original image
-        let outputImage = sharp(imageBuffer);
-
-        // Process each face
-        for (const face of scaledFaces) {
-          const { box } = face;
-          
-          // Extract and blur the face region
-          const blurredFace = await sharp(imageBuffer)
+        // Only extract if box is valid
+        if (bodyBox.width > 0 && bodyBox.height > 0) {
+          const bodyRegion = await sharp(imageBuffer)
             .extract({
-              left: box.xMin,
-              top: box.yMin,
-              width: box.width,
-              height: box.height
+              left: bodyBox.xMin,
+              top: bodyBox.yMin,
+              width: bodyBox.width,
+              height: bodyBox.height,
             })
-            .blur(40)
             .toBuffer();
 
-          // Composite the blurred face back onto the original image
-          outputImage = outputImage.composite([
+          outputImage = sharp(blurredFullImage).composite([
             {
-              input: blurredFace,
-              top: box.yMin,
-              left: box.xMin,
-            }
+              input: bodyRegion,
+              top: bodyBox.yMin,
+              left: bodyBox.xMin,
+            },
           ]);
+        } else {
+          // If bodyBox is not valid, just blur everything
+          outputImage = sharp(imageBuffer).blur(40);
+        }
+      } else {
+        outputImage = outputImage.blur(40);
+      }
+    }
+
+    if (blurFace) {
+      const faces = await detectFaces(imageBuffer, width, height);
+      if (faces.length > 0) {
+        let currentImageBuffer = await outputImage.toBuffer();
+
+        for (const face of faces) {
+          const faceBox = clampBox(face.box, width, height);
+          if (faceBox.width > 0 && faceBox.height > 0) {
+            const blurredFace = await sharp(currentImageBuffer)
+              .extract({
+                left: faceBox.xMin,
+                top: faceBox.yMin,
+                width: faceBox.width,
+                height: faceBox.height,
+              })
+              .blur(40)
+              .toBuffer();
+
+            const temp = sharp(currentImageBuffer).composite([
+              {
+                input: blurredFace,
+                top: faceBox.yMin,
+                left: faceBox.xMin,
+              },
+            ]);
+            currentImageBuffer = await temp.toBuffer();
+          }
         }
 
-        // Output the final image
-        await outputImage
-          .jpeg()
-          .toFile(outputPath);
-      } else {
-        // No faces detected, just output the original image
-        await sharp(imageBuffer).toFile(outputPath);
+        outputImage = sharp(currentImageBuffer);
       }
-    } else if (blurBackground) {
-      // If implementing background blur in the future, apply similar logic
-      await image.toFile(outputPath);
-    } else {
-      // No modifications
-      await image.toFile(outputPath);
     }
+
+    await outputImage.jpeg().toFile(outputPath);
   } catch (error) {
     console.error('Error processing image:', error);
     throw error;
