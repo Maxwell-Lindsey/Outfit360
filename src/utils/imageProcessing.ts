@@ -27,9 +27,10 @@ async function loadFaceModel() {
 async function loadBodyModel() {
   if (!bodyModel) {
     await tf.ready();
-    // Using BlazePose as the body detection model
+    // Using BlazePose 'full' model type to ensure we get comprehensive keypoints, including the head
     bodyModel = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, {
       runtime: 'tfjs',
+      modelType: 'full',
     });
   }
   return bodyModel;
@@ -98,7 +99,7 @@ async function detectBody(imageBuffer: Buffer, width: number, height: number) {
     return null;
   }
 
-  // We assume the first pose is the main subject
+  // Assume first pose is main subject
   const pose = poses[0];
   if (!pose.keypoints || pose.keypoints.length === 0) {
     return null;
