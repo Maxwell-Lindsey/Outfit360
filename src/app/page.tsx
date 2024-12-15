@@ -22,8 +22,16 @@ export default function Home() {
     };
   }, []);
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement> | React.DragEvent<HTMLDivElement>) => {
+    let file: File | undefined;
+    
+    if ('dataTransfer' in event) {
+      event.preventDefault();
+      file = event.dataTransfer.files?.[0];
+    } else {
+      file = event.target.files?.[0];
+    }
+
     if (!file) return;
 
     try {
@@ -53,6 +61,24 @@ export default function Home() {
     }
   };
 
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.add('border-indigo-600');
+  };
+
+  const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.add('border-indigo-600');
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.remove('border-indigo-600');
+  };
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {/* Hero Section */}
@@ -69,7 +95,13 @@ export default function Home() {
       {/* Upload Section */}
       <div className="mx-auto max-w-3xl">
         {!viewerData ? (
-          <div className="rounded-lg border border-dashed border-gray-900/25 p-12">
+          <div 
+            className="rounded-lg border border-dashed border-gray-900/25 p-12 transition-colors duration-200"
+            onDrop={handleUpload}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+          >
             <div className="text-center">
               <div className="mx-auto h-12 w-12 text-gray-300">
                 <svg
