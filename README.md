@@ -25,10 +25,10 @@ Outfit360 is a modern web application that transforms simple clothing videos int
   - TypeScript
   - Tailwind CSS
 - **Machine Learning & Computer Vision**:
-  - TensorFlow.js with specialized models:
+  - TensorFlow.js with MediaPipe models:
     - MediaPipe Face Detector for facial privacy
-    - BlazePose for body detection and tracking
-  - WebGL backend for optimized model performance
+    - MediaPipe BlazePose (full model) for body detection
+  - TensorFlow.js WebGL backend for hardware acceleration
 - **Image Processing**:
   - Sharp for server-side image manipulation and background blurring
   - Canvas API for client-side real-time face privacy effects
