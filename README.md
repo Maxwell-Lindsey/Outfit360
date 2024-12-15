@@ -20,23 +20,24 @@ Outfit360 is a modern web application that transforms simple clothing videos int
 ## Technology Stack
 
 - **Frontend**:
-  - Next.js 14
+  - Next.js 14.1.0
+  - React 18
   - TypeScript
   - Tailwind CSS
-  - React
-- **Machine Learning**:
-  - Face detection using TensorFlow.js MediaPipe Face Detector
-  - Image processing using Sharp and Canvas API
-- **Video Processing**:
-  - FFmpeg for frame extraction and video handling
-
-### Future Improvements
-
-The current implementation uses basic background blurring through Sharp. For enhanced background handling, we plan to implement one of these state-of-the-art background segmentation models:
-- [U²Net](https://github.com/xuebinqin/U-2-Net) - Highly accurate, better for detailed edges
-- [MODNet](https://github.com/ZHKKKe/MODNet) - Faster, better for real-time processing
-
-Both options would provide true background removal/replacement capabilities rather than just blurring.
+- **Machine Learning & Computer Vision**:
+  - TensorFlow.js with specialized models:
+    - MediaPipe Face Detector for facial privacy
+    - BlazePose for body detection and tracking
+  - WebGL backend for optimized model performance
+- **Image Processing**:
+  - Sharp for server-side image manipulation and background blurring
+  - Canvas API for client-side real-time face privacy effects
+  - Multi-pass blur and pixelation techniques
+  - FFmpeg for video frame extraction
+- **Development Tools**:
+  - ESLint for code quality
+  - PostCSS for CSS processing
+  - Node.js runtime
 
 ## Getting Started
 
