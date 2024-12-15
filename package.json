@@ -1,0 +1,35 @@
+{
+  "name": "outfit360",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tensorflow-models/face-detection": "^1.0.2",
+    "@tensorflow/tfjs": "^4.17.0",
+    "@tensorflow/tfjs-backend-webgl": "^4.17.0",
+    "canvas": "^2.11.2",
+    "ffmpeg-static": "^5.2.0",
+    "next": "14.1.0",
+    "react": "^18",
+    "react-dom": "^18",
+    "sharp": "^0.33.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8",
+    "eslint-config-next": "14.1.0",
+    "node-loader": "^2.0.0",
+    "null-loader": "^4.0.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5"
+  }
+}
